@@ -141,6 +141,17 @@ func WireUp(resource *orch_v1.StateResource, context *wiringplugin.WiringContext
 			BindableEnvVarShape:     *bindableShape,
 			CreatedBindingFromShape: binding,
 		})
+
+		envVarsShape, found, err := knownshapes.FindEnvironmentVariablesShape(dep.Contract.Shapes)
+		if err != nil {
+			return nil, false, err
+		}
+		if !found {
+			continue
+		}
+		// accumulate all vars from the shape into a map
+		// check that values are equal for overlapping keys and docuemnt that on the shape's name constant
+		// if value is non-binary put it inline, otherwise put it into a binarydata in a configmap. Can be done later.
 	}
 
 	var iamRoleRef *smith_v1.Reference
