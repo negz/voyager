@@ -241,6 +241,13 @@ func serviceToServiceData(existingData ServiceData, service *creator_v1.Service)
 		}
 	}
 
+	if service.Spec.Metadata.OpsGenie != nil {
+		err := SetOpsGenieMetadata(&sd, service.Spec.Metadata.OpsGenie)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if service.Spec.Metadata.Bamboo != nil {
 		err := SetBambooMetadata(&sd, service.Spec.Metadata.Bamboo)
 		if err != nil {
@@ -298,6 +305,14 @@ func serviceDataToService(data *ServiceData) (*creator_v1.Service, error) {
 	}
 	if pagerDutyMetadata != nil {
 		service.Spec.Metadata.PagerDuty = pagerDutyMetadata
+	}
+
+	opsGenieMetaData, err := GetOpsGenieMetadata(data)
+	if err != nil {
+		return nil, err
+	}
+	if opsGenieMetaData != nil {
+		service.Spec.Metadata.OpsGenie = opsGenieMetaData
 	}
 
 	bambooMetadata, err := GetBambooMetadata(data)

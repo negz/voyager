@@ -10,6 +10,9 @@ const (
 	// PagerDutyMetadataKey is the key we use to store the Metadata in the Misc field
 	PagerDutyMetadataKey = "pagerduty"
 
+	// OpsGenieMetadataKey is the key we use to store the Metadata in the Misc field
+	OpsGenieMetadataKey = "opsgenie"
+
 	// BambooMetadataKey is the key we use to store a list of allowed builds
 	BambooMetadataKey = "bamboo"
 )
@@ -27,6 +30,21 @@ func GetPagerDutyMetadata(serviceCentralData *ServiceData) (*creator_v1.PagerDut
 // SetPagerDutyMetadata stores the metadata for pagerduty into a Service's metadata
 func SetPagerDutyMetadata(serviceCentralData *ServiceData, m *creator_v1.PagerDutyMetadata) error {
 	return setMetadata(serviceCentralData, PagerDutyMetadataKey, m)
+}
+
+// GetOpsGenieMetadata reads the opsgenie metadata out of a service
+func GetOpsGenieMetadata(serviceCentralData *ServiceData) (*creator_v1.OpsGenieMetadata, error) {
+	var m creator_v1.OpsGenieMetadata
+	found, err := unmarshalFromMiscData(serviceCentralData, OpsGenieMetadataKey, &m)
+	if err != nil || !found {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// SetOpsGenieMetadata stores the metadata for opsgenie into a Service's metadata
+func SetOpsGenieMetadata(serviceCentralData *ServiceData, m *creator_v1.OpsGenieMetadata) error {
+	return setMetadata(serviceCentralData, OpsGenieMetadataKey, m)
 }
 
 // GetBambooMetadata reads the allowed builds metadata out of a service

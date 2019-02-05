@@ -16,6 +16,7 @@ import (
 	compClient "github.com/atlassian/voyager/pkg/composition/client"
 	"github.com/atlassian/voyager/pkg/k8s"
 	"github.com/atlassian/voyager/pkg/k8s/updater"
+	"github.com/atlassian/voyager/pkg/opsgenieIntegrationManager"
 	"github.com/atlassian/voyager/pkg/orchestration/wiring/k8scompute/api"
 	"github.com/atlassian/voyager/pkg/pagerduty"
 	"github.com/atlassian/voyager/pkg/releases"
@@ -57,19 +58,25 @@ const (
 )
 
 const (
-	serviceCentralPollPeriod            = 30 * time.Second
-	serviceCentralListAllPeriod         = 30 * time.Minute
-	serviceCentralListDriftCompensation = 5 * time.Second
-	releaseManagementPollPeriod         = 5 * time.Second
-	releaseManagementSyncAllPeriod      = 30 * time.Minute
-	baseDelayProcSec                    = 15
-	rmsPollJitterFactor                 = 1.2
+	serviceCentralPollPeriod                               = 30 * time.Second
+	serviceCentralListAllPeriod                            = 30 * time.Minute
+	serviceCentralListDriftCompensation                    = 5 * time.Second
+	releaseManagementPollPeriod                            = 5 * time.Second
+	releaseManagementSyncAllPeriod                         = 30 * time.Minute
+	baseDelayProcSec                                       = 15
+	rmsPollJitterFactor                                    = 1.2
+	secretTypeOpsGenie                  core_v1.SecretType = voyager.Domain + "/opsgenie"
+	secretNameOpsGenie                                     = "OpsGenieIntegrations"
 )
 
 type ServiceMetadataStore interface {
 	GetService(ctx context.Context, user auth.OptionalUser, name servicecentral.ServiceName) (*creator_v1.Service, error)
 	ListServices(ctx context.Context, user auth.OptionalUser) ([]creator_v1.Service, error)
 	ListModifiedServices(ctx context.Context, user auth.OptionalUser, modifiedSince time.Time) ([]creator_v1.Service, error)
+}
+
+type OpsGenieIntegrationManagerClient interface {
+	GetOrCreateIntegrations(ctx context.Context, teamName string) (bool, *opsgenieIntegrationManager.IntegrationsResponse, error)
 }
 
 type Controller struct {
@@ -84,6 +91,7 @@ type Controller struct {
 	ServiceCentral    ServiceMetadataStore
 	ReleaseManagement releases.ReleaseManagementStore
 	ClusterLocation   voyager.ClusterLocation
+	OpsGenie          OpsGenieIntegrationManagerClient
 
 	RoleBindingUpdater        updater.ObjectUpdater
 	ConfigMapUpdater          updater.ObjectUpdater
@@ -436,6 +444,22 @@ func (c *Controller) createOrUpdateServiceMetadata(logger *zap.Logger, ns *core_
 		},
 	}
 
+	// OpsGenie team is currently optional
+	if serviceData.Spec.Metadata.OpsGenie != nil {
+		retriable, resp, err := c.OpsGenie.GetOrCreateIntegrations(context.Background(), serviceData.Spec.Metadata.OpsGenie.Team)
+		if err != nil {
+			return retriable, err
+		}
+		spec, err := createOpsGenieSecretSpec(resp, ns)
+		if err != nil {
+			return false, err // Error indicates json marshalling problem
+		}
+		retriable, _, err = c.createOrUpdateSecret(logger, &spec)
+		if err != nil {
+			return retriable, nil
+		}
+	}
+
 	conflict, retriable, _, err := c.ConfigMapUpdater.CreateOrUpdate(
 		logger,
 		func(r runtime.Object) error {
@@ -450,6 +474,33 @@ func (c *Controller) createOrUpdateServiceMetadata(logger *zap.Logger, ns *core_
 		return retriable, err
 	}
 	return false, nil
+}
+
+// createOpsGenieSecretSpec creates an OpsGenieIntegrations secret object suitable for Secret creation
+func createOpsGenieSecretSpec(ogInt *opsgenieIntegrationManager.IntegrationsResponse, ns *core_v1.Namespace) (core_v1.Secret, error) {
+	jData, err := json.Marshal(ogInt)
+	if err != nil {
+		return core_v1.Secret{}, err
+	}
+
+	secretData := map[string][]byte{
+		secretNameOpsGenie: jData,
+	}
+
+	secret := core_v1.Secret{
+		TypeMeta: meta_v1.TypeMeta{
+			Kind:       k8s.SecretKind,
+			APIVersion: core_v1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      secretNameOpsGenie,
+			Namespace: ns.Name,
+		},
+		Data: secretData,
+		Type: secretTypeOpsGenie,
+	}
+
+	return secret, nil
 }
 
 func (c *Controller) getServiceData(user auth.OptionalUser, name voyager.ServiceName) (*creator_v1.Service, error) {
